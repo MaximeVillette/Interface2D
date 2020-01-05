@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/Fond/tapis">
+        <file>Robot.png</file>
+        <file>Table.PNG</file>
+    </qresource>
+</RCC>
