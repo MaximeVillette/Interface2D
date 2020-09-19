@@ -1,4 +1,8 @@
-QT       += core gui
+QT += core gui serialbus serialbus widgets
+requires(qtConfig(combobox))
+
+TARGET = debugCan
+TEMPLATE = app
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -16,13 +20,34 @@ DEFINES += QT_DEPRECATED_WARNINGS
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    bitratebox.cpp \
+    connectdialog.cpp \
     main.cpp \
-    twodv.cpp
+    sceneactions.cpp \
+    sceneasservissement.cpp \
+    sendframebox.cpp \
+    tabcommandes.cpp \
+    twodv.cpp \
+    mainwindow.cpp
 
 HEADERS += \
+    bitratebox.h \
+    connectdialog.h \
+    includes.h \
+    mainwindow.h \
+    sceneactions.h \
+    sceneasservissement.h \
+    sendframebox.h \
+    tabcommandes.h \
     twodv.h
 
 FORMS += \
+    connectdialog.ui \
+    mainwindow.ui \
+    sceneactions.ui \
+    sceneasservissement.ui \
+    sendframebox.ui \
+    tabcommandes.ui \
     twodv.ui
 
 # Default rules for deployment.
@@ -31,4 +56,13 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 RESOURCES += \
-    Ressources.qrc
+    Resources.qrc
+
+target.path = $$[QT_INSTALL_EXAMPLES]/serialbus/can
+INSTALLS += target
+
+DISTFILES += \
+    can/images/application-exit.png \
+    can/images/clear.png \
+    can/images/connect.png \
+    can/images/disconnect.png

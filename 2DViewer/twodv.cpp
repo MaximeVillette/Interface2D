@@ -1,35 +1,105 @@
 #include "twodv.h"
-#include "ui_twodv.h"
-#include <QtCore>
-#include <QtGui>
-#include <QPixmap>
-#include <QGraphicsScene>
-#include <QGraphicsItem>
-#include <QMouseEvent>
-#include <QKeyEvent>
+#include "mainwindow.h"
+#include "sceneasservissement.h"
+#include "sceneactions.h"
 
-TwoDV::TwoDV(QWidget *parent): QMainWindow(parent), ui(new Ui::TwoDV)
+//Librairie du design de la fenêtre
+#include "ui_twodv.h"
+
+//-----Variables & Accès-----//
+
+static string Reglages[SIZE_TAB_REG]={"0"}; //Tableau des réglages
+string const paramPath("C:/TwoDV/defaultSett.txt"); //Chemin de stockage des paramètres
+
+//-----Définition de la "class" TwoDV-----//
+
+TwoDV::TwoDV(MainWindow *bus, QWidget *parent): QMainWindow(parent),
+    ui(new Ui::TwoDV),
+    busCan(bus),
+    asservScene(new sceneAsservissement),
+    actionsScene(new sceneActions)
 {
     ui->setupUi(this);
 
-    //Création de la scene qui où l'on retrouvera la table et le robot
+    ui->SW_general->setCurrentIndex(0); //Affiche la première page au départ
+    QTimer::singleShot(10, this, SLOT(setSettings())); //Ouvre et applique les derniers réglages
 
-    scene = new QGraphicsScene(this);
-    ui->graphicsView->setScene(scene);
+    //Actions barre d'outils :
+    connect(ui->AC_temspReel, &QAction::triggered, [this]()
+        {Mode = true, emit sendMode(Mode);}); //Activer le mode temps réel
+    connect(ui->AC_developpement, &QAction::triggered, [this]()
+        {Mode = false, emit sendMode(Mode);}); //Activer le mode développement
 
-    //Intégration des images pour la scene
+    connect(ui->AC_ouvrirPeripherique, &QAction::triggered, [this]()
+    {
+        busCan->show();
+        busCan->activateWindow(); //Active la fenêtre et la met au premier plan
+    }); //Ouvre l'interface de communication
 
-    QPixmap tapis(":/Fond/tapis/Table.PNG");
-    image = scene->addPixmap(tapis);
+    connect(ui->AC_reglages, &QAction::triggered, [this]()
+        {ui->SW_general->setCurrentIndex(1);}); //Ouvre la page de réglages
 
-    QPixmap robot(":/Fond/tapis/Robot.png");
-    robot1 = scene->addPixmap(robot);
+    connect(ui->AC_fermer, &QAction::triggered, [this]()
+        {busCan->close();}); //Ferme la communication CAN
+    connect(ui->AC_quitter, &QAction::triggered, [this]()
+    {
+        TwoDV::close();
+        busCan->close();
+    }); //Ferme le logiciel
 
-    robot1->setScale(0.118); //Réduction de la taille de l'image pour qu'elle soit proportionnelle à celle de la table
-    robot1->setFlag(QGraphicsItem::ItemIsMovable); //Rendre le robot amovible avec la souris
-    robot1->setTransformOriginPoint(305,305); //Point d'origine au centre de l'image pour faire tourner le robot
-    robot1->setPos(-220,-160); //Position par défault dans le coin supérieur gauche
-    robot1->setRotation(0); //Angle par défault du robot
+    connect(ui->CB_modeTR_REG, &QCheckBox::clicked, [this]()
+    {
+        ui->CB_modeTR_REG->isChecked() ? ui->CB_modeD_REG->setChecked(0) : ui->CB_modeD_REG->setChecked(1);
+        Reglages[6]="0";
+    }); //Active le mode temps réel
+    connect(ui->CB_modeD_REG, &QCheckBox::clicked, [this]()
+    {
+        ui->CB_modeD_REG->isChecked() ? ui->CB_modeTR_REG->setChecked(0) : ui->CB_modeTR_REG->setChecked(1);
+        Reglages[6]="1";
+    }); //Active le mode développement
+
+    //Retour page réglage
+    connect(ui->PB_retour_REG, &QPushButton::clicked, [this]()
+        {ui->SW_general->setCurrentIndex(0);});
+
+    //Actions page principale
+    connect(ui->CB_afficherGVasserv, &QCheckBox::clicked, [this]()
+    {
+        ui->CB_afficherGVasserv->isChecked() ? ui->GB_sceneAsserv->show() : ui->GB_sceneAsserv->hide();
+        QTimer::singleShot(10, ui->GB_sceneAsserv, &sceneAsservissement::SetView);
+        QTimer::singleShot(10, ui->GB_sceneActions, &sceneActions::SetView);
+    }); //Afficher ou non l'asservissement
+    connect(ui->CB_afficherGVactions, &QCheckBox::clicked, [this]()
+    {
+        ui->CB_afficherGVactions->isChecked() ? ui->GB_sceneActions->show() : ui->GB_sceneActions->hide();
+        QTimer::singleShot(10, ui->GB_sceneAsserv, &sceneAsservissement::SetView);
+        QTimer::singleShot(10, ui->GB_sceneActions, &sceneActions::SetView);
+    }); //Afficher ou non les actions
+
+    connect(ui->GB_commandes, &tabCommandes::sendRotation, ui->GB_sceneAsserv, &sceneAsservissement::getRotation);
+    connect(ui->GB_commandes, &tabCommandes::sendDistance, ui->GB_sceneAsserv, &sceneAsservissement::getDistance);
+    connect(ui->GB_commandes, &tabCommandes::sendVitesse, ui->GB_sceneAsserv, &sceneAsservissement::getVitesse);
+    connect(ui->GB_commandes, &tabCommandes::sendNewPosX, ui->GB_sceneAsserv, &sceneAsservissement::getNewPosX);
+    connect(ui->GB_commandes, &tabCommandes::sendNewPosY, ui->GB_sceneAsserv, &sceneAsservissement::getNewPosY);
+    connect(ui->GB_commandes, &tabCommandes::sendNewAngle, ui->GB_sceneAsserv, &sceneAsservissement::getNewAngle);
+
+    connect(ui->GB_sceneAsserv, &sceneAsservissement::sendInfosPosRobot, ui->GB_commandes, &tabCommandes::getInfosPosRobot);
+    connect(ui->GB_sceneAsserv, &sceneAsservissement::sendNewDefaultPos, ui->GB_commandes, &tabCommandes::getNewDefaultPos);
+    connect(ui->GB_commandes, &tabCommandes::sendFrameControl, this, &TwoDV::FrameControl);
+
+    connect(this, &TwoDV::sendMode, ui->GB_commandes, &tabCommandes::getCommandAuthorize);
+    connect(this, &TwoDV::sendMode, ui->GB_sceneAsserv, &sceneAsservissement::getMode);
+
+    connect(this, &TwoDV::sendPosXReg, ui->GB_commandes, &tabCommandes::getPosXReg);
+    connect(this, &TwoDV::sendPosYReg, ui->GB_commandes, &tabCommandes::getPosYReg);
+    connect(this, &TwoDV::sendAngleReg, ui->GB_commandes, &tabCommandes::getAngleReg);
+    connect(this, &TwoDV::sendDistanceReg, ui->GB_commandes, &tabCommandes::getDistanceReg);
+    connect(this, &TwoDV::sendRotationReg, ui->GB_commandes, &tabCommandes::getRotationReg);
+    connect(this, &TwoDV::sendVitesseReg, ui->GB_commandes, &tabCommandes::getVitesseReg);
+
+    timer = new QTimer(this);
+    connect(timer, SIGNAL(timeout()), this, SLOT(requestDataCAN()));
+    timer->start(1000);
 }
 
 TwoDV::~TwoDV()
@@ -37,137 +107,137 @@ TwoDV::~TwoDV()
     delete ui;
 }
 
-static double PosX=0; //Position X du robot
-static double PosY=0; //Position Y du robot
-static int Rotate=0; //Angle du robot
-
-void TwoDV::keyPressEvent(QKeyEvent *keyevent) //Lecture des touches du clavier
+void TwoDV::resizeEvent(QResizeEvent* event) //Adapte la taille de la fenêtre
 {
-    ReadPosition(); //Lit la position du robot
-    if(keyevent->key() == Qt::Key_Z) //Aller vers l'avant si la touche Z est enfoncée
+   QMainWindow::resizeEvent(event); //Détecte de l'évènement
+   QTimer::singleShot(10, ui->GB_sceneAsserv, &sceneAsservissement::SetView);
+   QTimer::singleShot(10, ui->GB_sceneActions, &sceneActions::SetView);
+}
+
+void TwoDV::requestDataCAN()
+{
+    FrameControl(0x4B0, 0); //Capteurs couleurs
+    FrameControl(0x27A, 0); //Ventouses
+}
+
+void TwoDV::FrameControl(uint ID, int16_t DATA) //Envoi d'une consigne avec l'ID et les données
+{
+    QByteArray data(8, 0); //Donnée sur 8 octets
+    data[0] = static_cast<char>(DATA & 0xFF); //Converssion 'int16_t' vers 'char'
+    data[1] = static_cast<char>((DATA >> 8) & 0xFF); //Converssion int16_t vers 'char' plus décalage de 8 bits
+    QCanBusFrame frame(ID, data); //Définit une trame avec identifiant et donnée
+    busCan->sendFrame(frame);
+}
+
+void TwoDV::setCanPosRobot(const QCanBusFrame &fram) //Décomposer la trame pour placer le robot
+{
+    double px, py, theta; //Position vue par le bus CAN
+    const char * const idFormat = fram.hasExtendedFrameFormat() ? "%08X" : "%03X";
+    uint fid = static_cast<uint>(fram.frameId());
+    QString frID = QString::asprintf(idFormat, fid);
+
+    //Utilisation du poids fort/faible de la donnée (payload)
+    uint16_t x_faible = static_cast<uint8_t>(fram.payload()[0]);
+    uint16_t x_fort = static_cast<uint8_t>(fram.payload()[1]) << 8u;
+    px = static_cast<int16_t>(x_faible | x_fort); //Retourne la position X
+
+    uint16_t y_faible = static_cast<uint8_t>(fram.payload()[2]);
+    uint16_t y_fort = static_cast<uint8_t>(fram.payload()[3]) << 8u;
+    py = static_cast<int16_t>(y_faible | y_fort); //Retourne la position Y
+
+    uint16_t th_faible = static_cast<uint8_t>(fram.payload()[4]);
+    uint16_t th_fort = static_cast<uint8_t>(fram.payload()[5]) << 8u;
+    theta = static_cast<int16_t>(th_faible | th_fort);
+    theta *= 0.1; //Retourne l'angle theta
+
+    actionsScene->setVariables(POSX, "Position X", frID, QString("%0").arg(px), "");
+    actionsScene->setVariables(POSY, "Position Y", frID, QString("%0").arg(py), "");
+    actionsScene->setVariables(ANG, "Angle", frID, QString("%0").arg(theta), "");
+    asservScene->SetPosition(px+250, 1750-py, 90-theta); //Positionne le robot (250 et 1750 sont des offsets pour régler le placement) (mode temps réel uniquement)
+
+}
+void TwoDV::setCanServoRobot(const QCanBusFrame &fram) //Décomposer la trame pour les servomoteurs
+{
+    const char * const idFormat = fram.hasExtendedFrameFormat() ? "%08X" : "%03X";
+    uint fid = static_cast<uint>(fram.frameId());
+    QString frID = QString::asprintf(idFormat, fid);
+
+    QString etat;
+    if(fram.payload().toHex()=="9900") etat = "Bras sorties";
+    else if(fram.payload().toHex()=="1601") etat = "Bras rentrées";
+    else etat = "Aucun mouvements";
+    actionsScene->setVariables(SERVO, "Servo 1", frID, fram.payload().toHex(), etat);
+}
+void TwoDV::setCanVentRobot(const QCanBusFrame &fram) //Décomposer la trame pour les ventouses
+{
+     qDebug() << "Ventouses :" << fram.payload().toHex();
+     actionsScene->setVariables(VENT, "Vent 1", "frID", fram.payload().toHex(), "etat");
+}
+void TwoDV::setCanColorsRobot(const QCanBusFrame &fram) //Décomposer la trame pour les capteurs de couleurs
+{
+    qDebug() << "Capteurs coulerus :" << fram.payload().toHex();
+    actionsScene->setVariables(COLSENS, "Color 1", "frID", fram.payload().toHex(), "etat");
+}
+
+bool TwoDV::activeMode()
+{
+    return Mode;
+}
+
+void TwoDV::on_PB_enregistrer_REG_clicked() //Enregistre les réglages
+{
+    ofstream flux(paramPath); //Créer un flux de sortie
+    ui->SW_general->setCurrentIndex(0); //Remet la page initiale
+    //Enregistre chaque réglage
+    Reglages[0] = QString("%0").arg(ui->DSB_posX_REG->value()).toStdString();
+    Reglages[1] = QString("%0").arg(ui->DSB_posY_REG->value()).toStdString();
+    Reglages[2] = QString("%0").arg(ui->DSB_angle_REG->value()).toStdString();
+    Reglages[3] = QString("%0").arg(ui->DSB_distance_REG->value()).toStdString();
+    Reglages[4] = QString("%0").arg(ui->DSB_rotation_REG->value()).toStdString();
+    Reglages[5] = QString("%0").arg(ui->DSB_vitesse_REG->value()).toStdString();
+    Reglages[6] = ui->CB_modeTR_REG->isChecked() ? "1" : "0";
+    if(flux) //Si le flux est bien présent
     {
-        SelectionQuadrantSensP(Rotate); //Calcul des coordonées d'arriver pour une translation dans le sens positif
-        TableLimit(PosX,PosY); //Vérification de la position du robot
-        PositionRobot(PosX,PosY); //Le robot est positionné
+        for(int i=0; i<SIZE_TAB_REG; i++) flux << Reglages[i] << endl; //Enregistre chaque réglage
+        setSettings();//Applique les réglages
     }
-    if(keyevent->key() == Qt::Key_S) //Aller vers l'arrière si la touche S est enfoncée
+    else QMessageBox::warning(this,"Erreur","Impossible d'enregistrer les réglages !");
+}
+
+void TwoDV::setSettings() //Ouvre les réglages
+{
+    ifstream flux(paramPath); //Créer un flux d'entrée
+    if(flux) //Si le flux est bien présent
     {
-        SelectionQuadrantSensM(Rotate); //Calcul des coordonées d'arriver pour une translation dans le sens négatif
-        TableLimit(PosX,PosY);
-        PositionRobot(PosX,PosY);
-    }
-    if(keyevent->key() == Qt::Key_D) //Aller vers la droite si la touche D est enfoncée
-    {
-        Rotate++; //Incrémentation de l'angle
-        if(Rotate>360)
+        for(int i=0; i<SIZE_TAB_REG; i++) flux >> Reglages[i]; //Charge chaque réglage
+        //Applique chaque réglage
+        ui->DSB_posX_REG->setValue(QString::fromStdString(Reglages[0]).toDouble());
+        ui->DSB_posY_REG->setValue(QString::fromStdString(Reglages[1]).toDouble());
+        ui->DSB_angle_REG->setValue(QString::fromStdString(Reglages[2]).toDouble());
+        ui->DSB_distance_REG->setValue(QString::fromStdString(Reglages[3]).toDouble());
+        ui->DSB_rotation_REG->setValue(QString::fromStdString(Reglages[4]).toDouble());
+        ui->DSB_vitesse_REG->setValue(QString::fromStdString(Reglages[5]).toDouble());
+        if(Reglages[6] == "1") //Différencie le mode temps réeel et développement
         {
-            Rotate=0; //Si l'angle est supérieur à 360°, il faut repartir à 0°
+            ui->CB_modeTR_REG->setChecked(1);
+            ui->CB_modeD_REG->setChecked(0);
+            Mode = true;
         }
-        robot1->setRotation(Rotate); //Le robot tourne avec l'angle demandé
-    }
-    if(keyevent->key() == Qt::Key_Q) //Aller vers la gauche si la touche Q est enfoncée
-    {
-        Rotate--; //Décrémentation de l'angle
-        if(Rotate<0)
+        else
         {
-            Rotate=360; //Si l'angle est inférieur à 0°, il faut repartir à 360°
+            ui->CB_modeTR_REG->setChecked(0);
+            ui->CB_modeD_REG->setChecked(1);
+            Mode = false;
         }
-        robot1->setRotation(Rotate);
+        emit sendMode(Mode);
+        emit sendPosXReg(QString::fromStdString(Reglages[0]).toDouble());
+        emit sendPosYReg(QString::fromStdString(Reglages[1]).toDouble());
+        emit sendAngleReg(QString::fromStdString(Reglages[2]).toDouble());
+        emit sendDistanceReg(QString::fromStdString(Reglages[3]).toDouble());
+        emit sendRotationReg(QString::fromStdString(Reglages[4]).toDouble());
+        emit sendVitesseReg(QString::fromStdString(Reglages[5]).toDouble());
+        asservScene->SetPosition(QString::fromStdString(Reglages[0]).toDouble(),
+                QString::fromStdString(Reglages[1]).toDouble(), QString::fromStdString(Reglages[2]).toDouble()); //Applique la position de départ
     }
-    if((keyevent->key()== Qt::Key_I)&&(keyevent->modifiers()==Qt::ControlModifier)) //Si les touches Ctrl et I sont enfoncées
-    {
-        PosX=-220;
-        PosY=-160;
-        PositionRobot(PosX,PosY); //Position initiale
-        Rotate=0;
-        robot1->setRotation(Rotate); //Angle initiale
-    }
-    ui->LabelPosX->setNum(PosX); //Affiche la coordonnée Y
-    ui->LabelPosY->setNum(PosY); //Affiche la coordonnée X
-    ui->label->setNum(Rotate); //Affiche l'angle
+    else QMessageBox::warning(this,"Erreur","Impossible d'ouvrir les réglages!");
 }
-
-void TwoDV::PositionRobot(double X,double Y) //Fonction pour placer le robot en fonction de X et Y
-{
-    robot1->setX(X); //Donne la valeur de X
-    robot1->setY(Y); //Donne la valeur de Y
-}
-
-void TwoDV::TableLimit(double Px,double Py) //Fonction pour vérifier que le robot est toujours sur la table
-{
-    //Cette fonction peut encore être améliorée pour changer les positions par défaults
-    if(!((Px>-220.0)&&(Px<390.0))) //Si les coordonnées Xmin et Xmax ne sont pas bonnes
-    {
-        PosX=-220.0; //Donne -220 par défault
-    }
-    if(!((Py>-160.0)&&(Py<230.0))) //Si les coordonnées Ymin et Ymax ne sont pas bonnes
-    {
-        PosY=-160.0; //Donne -160 par défault
-    }
-}
-
-void TwoDV::ReadPosition() //Fonction qui lit la position du robot
-{
-    PosX=robot1->pos().rx(); //Change PosX
-    PosY=robot1->pos().ry(); //Change PosY
-}
-
-// Les calculs des fonctions ci-dessous, sont issus du logiciel Regressi
-
-void TwoDV::SelectionQuadrantSensM(int teta) //Calcul de la trajectoire dans le sens négatif
-{
-    /*La différence entre le sens positif et le sens négatif est la façon de calculer l'ancienne position
-      Exemple si le robot doit aller en avant : PosY+=(0.0111*Rotate)-1;
-                                                PosX+=(-0.0111*Rotate)+2;
-      Exemple si le robot doit aller en arrière : PosY-=(0.0111*Rotate)-1;
-                                                  PosX-=(-0.0111*Rotate)+2;
-      C'est donc la seule différence entre les deux fonctions, les calculs de trajectoire restent les mêmes
-
-      La façon d'utiliser les signes + ou - devant le = dépend du quadrant (voir figure 17 du rapport technique)
-    */
-    if((teta>=0)&&(teta<=90)) //Si l'angle est dans le quadrant 1
-    {
-        PosY-=(-0.0111*Rotate)+1;
-        PosX+=(0.0111*Rotate);
-    }
-    if((teta>90)&&(teta<=180)) //Si l'angle est dans le quadrant 2
-    {
-        PosY+=(0.0111*Rotate)-1;
-        PosX+=(-0.0111*Rotate)+2;
-    }
-    if((teta>180)&&(teta<=270)) //Si l'angle est dans ce quadrant 3
-    {
-        PosY+=(-0.0111*Rotate)+3;
-        PosX-=(0.0111*Rotate)-2;
-    }
-    if((teta>270)&&(teta<360)) //Si l'angle est dans ce quadrant 4
-    {
-        PosY-=(0.0111*Rotate)-3;
-        PosX-=(-0.0111*Rotate)+4;
-    }
-}
-
-void TwoDV::SelectionQuadrantSensP(int teta) //Calcul de la trajectoire dans le sens positif
-{
-    if((teta>=0)&&(teta<=90)) //Si l'angle est dans le quadrant 1
-    {
-        PosY+=(-0.0111*Rotate)+1;
-        PosX-=(0.0111*Rotate);
-    }
-    if((teta>90)&&(teta<=180)) //Si l'angle est dans le quadrant 2
-    {
-        PosY-=(0.0111*Rotate)-1;
-        PosX-=(-0.0111*Rotate)+2;
-    }
-    if((teta>180)&&(teta<=270)) //Si l'angle est dans ce quadrant 3
-    {
-        PosY-=(-0.0111*Rotate)+3;
-        PosX+=(0.0111*Rotate)-2;
-    }
-    if((teta>270)&&(teta<360)) //Si l'angle est dans ce quadrant 4
-    {
-        PosY+=(0.0111*Rotate)-3;
-        PosX+=(-0.0111*Rotate)+4;
-    }
-}
-

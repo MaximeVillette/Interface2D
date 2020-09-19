@@ -1,16 +1,18 @@
 #ifndef TWODV_H
 #define TWODV_H
 
-#include <QMainWindow>
-#include <QtCore>
-#include <QtGui>
-#include <QGraphicsScene>
-#include <QGraphicsItemAnimation>
-#include <QMouseEvent>
-#include <QKeyEvent>
+#include "includes.h"
+
+#define SIZE_TAB_REG 7
 
 QT_BEGIN_NAMESPACE
-namespace Ui { class TwoDV; }
+namespace Ui {
+class TwoDV;
+}
+class MainWindow; //Définit la "class" en fenêtre principale
+class ConnectDialog;
+class sceneAsservissement;
+class sceneActions;
 QT_END_NAMESPACE
 
 class TwoDV : public QMainWindow
@@ -18,28 +20,50 @@ class TwoDV : public QMainWindow
     Q_OBJECT
 
 public:
-    TwoDV(QWidget *parent = nullptr);
-    ~TwoDV();
+    TwoDV(MainWindow *bus, QWidget *parent = nullptr); //Déclare TwoDV
+    ~TwoDV(); //Supprimer TwoDV
+
+    void setCanPosRobot(const QCanBusFrame &fram); //Récupère la trame CAN pour la position du robot
+    void setCanVentRobot(const QCanBusFrame &fram); //Récupère la trame CAN pour l'état des ventouses
+    void setCanServoRobot(const QCanBusFrame &fram); //Récupère la trame CAN pour l'état des servomoteurs
+    void setCanColorsRobot(const QCanBusFrame &fram); //Récupère la trame CAN pour l'état des capteurs de couleurs
+    void FrameControl(uint ID, int16_t DATA); //Envoi une trame CAN
+    bool activeMode();
+
+signals:
+    void sendMode(bool state);
+    void sendPosXReg(double reglage);
+    void sendPosYReg(double reglage);
+    void sendAngleReg(double reglage);
+    void sendDistanceReg(double reglage);
+    void sendRotationReg(double reglage);
+    void sendVitesseReg(double reglage);
 
 private slots:
-
-    void PositionRobot(double X1,double Y1);
-    void TableLimit(double Px,double Py);
-    void ReadPosition();
-    void SelectionQuadrantSensP(int teta);
-    void SelectionQuadrantSensM(int teta);
+    void on_PB_enregistrer_REG_clicked();
+    void setSettings();
+    void requestDataCAN();
 
 private:
-    Ui::TwoDV *ui;
+    Ui::TwoDV *ui; //Créer un User Interface dans TwoDV
 
-    //Création des différents items à intégrer dans la fenêtre 'graphicsView'
+    MainWindow *busCan = nullptr; //Créer un busCan dans MainWindow
+    sceneAsservissement *asservScene = nullptr;
+    sceneActions *actionsScene = nullptr;
 
-    QGraphicsScene *scene;
-    QGraphicsPixmapItem *image;
-    QGraphicsPixmapItem *robot1;
+    std::unique_ptr<QCanBusDevice> can_device; //Déclaration d'un bus CAN
+    QList<QCanBusDeviceInfo> interfaces; //List des données concernant le bus CAN
 
-    //Création du prototype de fonction : évènement de touche enfoncée
+    QTimer *timer; //Pour faire des demandes sur le bus CAN
 
-    void keyPressEvent(QKeyEvent *keyevent);
+    bool Mode = false;
+
+    enum Ligne
+    {
+        POSX, POSY, ANG, SERVO, VENT, COLSENS
+    };
+
+protected:
+    virtual void resizeEvent(QResizeEvent *event) override;
 };
 #endif // TWODV_H
