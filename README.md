@@ -1,2 +1,6 @@
 # Interface2D
-Première version de l'interface 2D dans laquelle vous pouvez déplacer le robot avec les touches Z, S, Q et D. Un appui sur Ctrl+I remettra le robot dans sa position d'origine.
+Dernière version complète et fonctionnelle de 2DViewer.
+  - Ajout de 3 nouvelles class (tabcommandes, sceneasservissement, sceneactions)
+  - Amélioration de la partie graphique
+  - Ajout de nouvelles commandes (servomoteurs et ventouses)
+  - Optimisation du code (surtout dans twodv.cpp)
